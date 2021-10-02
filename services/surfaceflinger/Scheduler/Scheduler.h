@@ -279,6 +279,24 @@ private:
     const bool mUseContentDetection;
     // This variable indicates whether to use V2 version of the content detection.
     const bool mUseContentDetectionV2;
+    // Whether to use simple dynamic refresh rate
+    bool simpleDynamicRefreshRate;
+
+    bool lastActive;
+
+    void maxRefreshRateKick() {
+        HwcConfigIndexType newConfigId;
+        scheduler::RefreshRateConfigs::GlobalSignals consideredSignals;
+        {
+            std::lock_guard<std::mutex> lock(mFeatureStateLock);
+            newConfigId = calculateRefreshRateConfigIndexType(&consideredSignals);
+            if (mFeatures.configId == newConfigId)
+                return;
+            mFeatures.configId = newConfigId;
+        }
+        const RefreshRate& newRefreshRate = mRefreshRateConfigs.getRefreshRateFromConfigId(newConfigId);
+        mSchedulerCallback.changeRefreshRate(newRefreshRate, ConfigEvent::Changed);
+    }
 };
 
 } // namespace android

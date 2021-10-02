@@ -116,6 +116,8 @@ Scheduler::Scheduler(impl::EventControlThread::SetVSyncEnabledFunction function,
         mLayerHistory = std::make_unique<scheduler::impl::LayerHistory>();
     }
 
+    simpleDynamicRefreshRate = property_get_bool("ro.sf.simple_dyn_refresh_rate", false);
+
     const int setIdleTimerMs = property_get_int32("debug.sf.set_idle_timer_ms", 0);
 
     if (const auto millis = setIdleTimerMs ? setIdleTimerMs : set_idle_timer_ms(0); millis > 0) {
@@ -124,7 +126,11 @@ Scheduler::Scheduler(impl::EventControlThread::SetVSyncEnabledFunction function,
         mIdleTimer.emplace(
                 std::chrono::milliseconds(millis),
                 [this, callback] { std::invoke(callback, this, TimerState::Reset); },
-                [this, callback] { std::invoke(callback, this, TimerState::Expired); });
+                [this, callback] {
+                    this->lastActive = false;
+                    std::invoke(callback, this, TimerState::Expired);
+                }
+        );
         mIdleTimer->start();
     }
 
@@ -501,6 +507,12 @@ void Scheduler::resetIdleTimer() {
 void Scheduler::notifyTouchEvent() {
     if (!mTouchTimer) return;
 
+    if (simpleDynamicRefreshRate) {
+        lastActive = true;
+        mTouchTimer->reset();
+        maxRefreshRateKick();
+        return;
+    }
     // Touch event will boost the refresh rate to performance.
     // Clear Layer History to get fresh FPS detection.
     // NOTE: Instead of checking all the layers, we should be checking the layer
@@ -630,6 +642,14 @@ HwcConfigIndexType Scheduler::calculateRefreshRateConfigIndexType(
 
     const bool touchActive = mTouchTimer && mFeatures.touch == TouchState::Active;
     const bool idle = mIdleTimer && mFeatures.idleTimer == TimerState::Expired;
+
+    if (simpleDynamicRefreshRate) {
+        if (idle || !touchActive || !lastActive) {
+            if (idle && consideredSignals) consideredSignals->idle = true;
+            return mRefreshRateConfigs.getMinRefreshRateByPolicy().getConfigId();
+        }
+        return mRefreshRateConfigs.getMaxRefreshRateByPolicy().getConfigId();
+    }
 
     if (!mUseContentDetectionV2) {
         // As long as touch is active we want to be in performance mode.
