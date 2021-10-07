@@ -681,6 +681,8 @@ HwcConfigIndexType Scheduler::calculateRefreshRateConfigIndexType(
 }
 
 std::optional<HwcConfigIndexType> Scheduler::getPreferredConfigId() {
+    if (simpleDynamicRefreshRate)
+        return mRefreshRateConfigs.getMaxRefreshRateByPolicy().getConfigId();
     std::lock_guard<std::mutex> lock(mFeatureStateLock);
     // Make sure that the default config ID is first updated, before returned.
     if (mFeatures.configId.has_value()) {
